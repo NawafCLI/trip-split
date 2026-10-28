@@ -1,7 +1,7 @@
 {
   "name": "Trip Split",
   "short_name": "Trip Split",
-  "description": "Daily KRW/JPY expense split for 3BNDAT, Manar and Raghad",
+  "description": "Daily KRW/JPY expense split for Nawaf, Manar and Raghad",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

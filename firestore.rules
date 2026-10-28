@@ -5,8 +5,8 @@ service cloud.firestore {
     // private tripId from config.js. Writes must look like a real expense.
     match /trips/{tripId}/expenses/{id} {
       allow read, delete: if true;
-      allow create, update: if request.resource.data.payer in ['3BNDAT', 'Manar', 'Raghad']
-        && request.resource.data.currency in ['KRW', 'JPY']
+      allow create, update: if request.resource.data.payer in ['Nawaf', 'Manar', 'Raghad']
+        && request.resource.data.currency in ['KRW', 'JPY', 'SAR']
         && request.resource.data.amount is number
         && request.resource.data.amount > 0
         && request.resource.data.amount < 100000000

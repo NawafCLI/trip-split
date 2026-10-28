@@ -106,7 +106,7 @@
   #note { width: 100%; font-size: 17px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); outline: none; }
   #amount:focus, #note:focus { border-color: var(--accent); background: var(--card); }
   .seg { display: flex; background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 3px; flex: none; }
-  .seg button { border: 0; background: none; border-radius: 9px; padding: 0 12px; font-weight: 700; font-size: 15px; color: var(--muted); min-width: 58px; }
+  .seg button { border: 0; background: none; border-radius: 9px; padding: 0 12px; font-weight: 700; font-size: 14px; color: var(--muted); min-width: 0; }
   .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
   .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .chip {
@@ -224,6 +224,7 @@
         <div class="seg" id="cur" role="group" aria-label="Currency">
           <button type="button" data-v="KRW">KRW</button>
           <button type="button" data-v="JPY">JPY</button>
+          <button type="button" data-v="SAR">SAR</button>
         </div>
       </div>
       <div class="sar" id="sarLine" aria-live="polite"></div>
@@ -284,12 +285,12 @@
 
 <script src="config.js"></script>
 <script type="module">
-const PEOPLE = ['3BNDAT', 'Manar', 'Raghad'];
-const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' } };
+const PEOPLE = ['Nawaf', 'Manar', 'Raghad'];
+const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' }, SAR: { sym: '﷼' } };
 const ZONES = { KR: { name: 'Korea', tz: 'Asia/Seoul' }, JP: { name: 'Japan', tz: 'Asia/Tokyo' } };
 const DAY = 86400e3;
 // Units per 1 SAR. Used until live rates load (and kept if the phone is offline).
-const FALLBACK_RATES = { KRW: 354, JPY: 42.1 };
+const FALLBACK_RATES = { KRW: 354, JPY: 42.1, SAR: 1 };
 const cfg = window.TRIP_CONFIG || {};
 
 const ls = {
@@ -321,12 +322,12 @@ const money = (n, c) => c === 'SAR'
 const msToMidnight = () => { const now = Date.now(), local = now + offsetAt(now); return Math.ceil(local / DAY) * DAY - local || DAY; };
 
 // ---------- exchange rates (units per 1 SAR) ----------
-let rates = ls.get('tripsplit.rates', null)?.rates || FALLBACK_RATES;
+let rates = { ...FALLBACK_RATES, ...ls.get('tripsplit.rates', null)?.rates, SAR: 1 };
 async function loadRates() {
   try {
     const j = await (await fetch('https://open.er-api.com/v6/latest/SAR')).json();
     if (j.result === 'success' && j.rates?.KRW && j.rates?.JPY) {
-      rates = { KRW: j.rates.KRW, JPY: j.rates.JPY };
+      rates = { KRW: j.rates.KRW, JPY: j.rates.JPY, SAR: 1 };
       ls.set('tripsplit.rates', { rates, at: Date.now() });
       render();
     }
@@ -423,13 +424,16 @@ function logHTML(list, emptyText) {
     const split = e.split.length === PEOPLE.length ? 'split 3 ways' : 'for ' + e.split.join(' & ');
     return `<button class="row" type="button" data-id="${esc(e.id)}">${av(e.payer)}
       <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}</div></span>
-      <span class="amt">${money(e.amount, e.currency)}<div class="m">≈ ${money(toSAR(e), 'SAR')}</div></span></button>`;
+      <span class="amt">${money(e.amount, e.currency)}${e.currency === 'SAR' ? '' : `<div class="m">≈ ${money(toSAR(e), 'SAR')}</div>`}</span></button>`;
   }).join('') + '</div>';
 }
 
 // ---------- state ----------
 let expenses = [];
 let me = ls.get('tripsplit.me', null);
+if (me === '3BNDAT') { me = 'Nawaf'; ls.set('tripsplit.me', me); }  // renamed from 3BNDAT
+if (!PEOPLE.includes(me)) me = null;
+const fixName = p => p === '3BNDAT' ? 'Nawaf' : p;
 let currency = ls.get('tripsplit.cur', 'KRW');
 let payer = me || PEOPLE[0];
 let split = new Set(PEOPLE);
@@ -502,10 +506,14 @@ function tick() {
   if (todayKey() !== currentDay) { currentDay = todayKey(); render(); }
 }
 
-const parseAmount = () => Math.round(parseFloat($('#amount').value.replace(/[^\d.]/g, '')));
+// Won and yen have no small change; riyals keep halalas (2 decimals).
+const parseAmount = () => {
+  const v = parseFloat($('#amount').value.replace(/[^\d.]/g, ''));
+  return currency === 'SAR' ? Math.round(v * 100) / 100 : Math.round(v);
+};
 function updateHint() {
   const a = parseAmount();
-  $('#sarLine').innerHTML = a > 0 ? `≈ ${money(a / rates[currency], 'SAR')}<small>${rateText()}</small>` : `<small style="margin:0">${rateText()}</small>`;
+  $('#sarLine').innerHTML = a > 0 && currency !== 'SAR' ? `≈ ${money(a / rates[currency], 'SAR')}<small>${rateText()}</small>` : `<small style="margin:0">${rateText()}</small>`;
 }
 
 let toastTimer;
@@ -594,7 +602,7 @@ store ||= localStore();
 $('#localNote').hidden = store.mode !== 'local';
 setSync(store.mode === 'local' ? 'local' : 'wait');
 store.subscribe(list => {
-  expenses = list.filter(e => PEOPLE.includes(e.payer) && CUR[e.currency] && e.split?.length && e.split.every(p => PEOPLE.includes(p)));
+  expenses = list.map(e => ({ ...e, payer: fixName(e.payer), split: (e.split || []).map(fixName) })).filter(e => PEOPLE.includes(e.payer) && CUR[e.currency] && e.split?.length && e.split.every(p => PEOPLE.includes(p)));
   render();
 }, setSync);
 
