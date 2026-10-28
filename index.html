@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Trip Split">
+<title>Trip Split</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1c1b19; --muted: #6b6862; --line: #e7e4de;
+    --soft: #efede8; --accent: #4f46e5; --accent-ink: #ffffff;
+    --p0: #4f46e5; --p1: #0d9488; --p2: #dc4a34;
+    --good: #15803d; --warn: #b45309; --bad: #b91c1c;
+    --radius: 16px; --shadow: 0 1px 2px rgb(0 0 0 / .05), 0 4px 14px rgb(0 0 0 / .04);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131312; --card: #1d1c1a; --ink: #f2f0ec; --muted: #a29e96; --line: #2f2d2a;
+      --soft: #262522; --accent: #8b93ff; --accent-ink: #111111;
+      --p0: #8b93ff; --p1: #2dd4bf; --p2: #ff8a75;
+      --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
+      --shadow: none; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131312; --card: #1d1c1a; --ink: #f2f0ec; --muted: #a29e96; --line: #2f2d2a;
+    --soft: #262522; --accent: #8b93ff; --accent-ink: #111111;
+    --p0: #8b93ff; --p1: #2dd4bf; --p2: #ff8a75;
+    --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
+    --shadow: none; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+
+  .top {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; font-size: 18px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+  .sync { font-size: 12px; font-weight: 500; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .sync.ok::before { background: var(--good); }
+  .sync.wait::before { background: var(--warn); }
+  .sync.err::before { background: var(--bad); }
+  .me {
+    border: 1px solid var(--line); background: var(--card); border-radius: 999px;
+    padding: 6px 12px 6px 6px; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px;
+  }
+
+  .tzrow { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .seg-sm { border-radius: 10px; }
+  .seg-sm button { padding: 5px 10px; font-size: 13px; min-width: 0; border-radius: 7px; }
+  .rates { font-size: 12px; color: var(--muted); margin: 12px 2px 0; }
+
+  main { max-width: 560px; margin: 0 auto; padding: 12px 16px 24px; }
+  .h { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 4px 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+  .card + .card { margin-top: 12px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  .av {
+    width: 26px; height: 26px; border-radius: 50%; flex: none;
+    display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff;
+  }
+  .c0 { --pc: var(--p0); } .c1 { --pc: var(--p1); } .c2 { --pc: var(--p2); }
+  .av { background: var(--pc); }
+  :root[data-theme="dark"] .av { color: #111; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .av { color: #111; } }
+
+  /* Add form */
+  .lbl { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 2px 6px; }
+  .lbl:first-child { margin-top: 0; }
+  .amount-row { display: flex; gap: 8px; align-items: stretch; }
+  .amount-wrap { position: relative; flex: 1; min-width: 0; }
+  .amount-wrap .sym { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 26px; color: var(--muted); font-weight: 600; pointer-events: none; }
+  #amount {
+    width: 100%; font-size: 30px; font-weight: 700; padding: 10px 12px 10px 42px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--soft); outline: none;
+    font-variant-numeric: tabular-nums;
+  }
+  #note { width: 100%; font-size: 17px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); outline: none; }
+  #amount:focus, #note:focus { border-color: var(--accent); background: var(--card); }
+  .seg { display: flex; background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 3px; flex: none; }
+  .seg button { border: 0; background: none; border-radius: 9px; padding: 0 12px; font-weight: 700; font-size: 15px; color: var(--muted); min-width: 58px; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+  .chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .chip {
+    border: 1.5px solid var(--line); background: var(--card); border-radius: 999px; min-width: 0;
+    padding: 5px 8px 5px 5px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--pc); background: color-mix(in srgb, var(--pc) 12%, var(--card)); }
+  .chip[aria-pressed="false"] .av { opacity: .35; }
+  .primary {
+    width: 100%; margin-top: 18px; border: 0; border-radius: 12px; padding: 14px;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 17px;
+  }
+  .primary:active { transform: scale(.99); }
+  .hint { font-size: 13px; color: var(--muted); margin: 8px 2px 0; min-height: 1em; }
+
+  /* Log */
+  .log { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 0; background: none; width: 100%; text-align: left; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .mid { flex: 1; min-width: 0; }
+  .row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .m { font-size: 13px; color: var(--muted); }
+  .row .amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  .row .amt .m { font-weight: 500; }
+  .empty { padding: 22px 16px; text-align: center; color: var(--muted); font-size: 15px; }
+
+  /* Summaries */
+  .hero { text-align: center; padding: 18px 16px; }
+  .big { font-size: 28px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .cur-block + .cur-block { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
+  .cur-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .tag { font-size: 12px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 6px; background: var(--soft); color: var(--muted); }
+  .paid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+  .paid div { background: var(--soft); border-radius: 10px; padding: 8px; text-align: center; min-width: 0; }
+  .paid .n { font-size: 12px; color: var(--muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .paid .v { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .xfer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); }
+  .xfer + .xfer { margin-top: 6px; }
+  .xfer .who { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; }
+  .xfer .arrow { color: var(--muted); font-weight: 400; }
+  .xfer .amt { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .square { padding: 10px 12px; border-radius: 12px; background: var(--soft); color: var(--muted); font-weight: 600; text-align: center; }
+  .day-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .day-title b { font-size: 18px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 14px; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  details[open] summary { margin-bottom: 10px; }
+  details .log { box-shadow: none; }
+
+  .banner {
+    margin: 12px 16px 0; padding: 12px 14px; border-radius: 14px; border: 0; width: calc(100% - 32px);
+    max-width: 528px; display: block; margin-inline: auto; text-align: left;
+    background: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  .note-local { margin-top: 18px; font-size: 13px; color: var(--muted); text-align: center; }
+
+  /* Bottom tabs */
+  .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  .tabs button { border: 0; background: none; padding: 6px 0; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; font-weight: 600; color: var(--muted); position: relative; }
+  .tabs svg { width: 24px; height: 24px; }
+  .tabs button[aria-selected="true"] { color: var(--accent); }
+  .dot { position: absolute; top: 4px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+
+  /* Who-are-you sheet */
+  .overlay { position: fixed; inset: 0; z-index: 20; background: rgb(0 0 0 / .45); display: grid; place-items: end center; }
+  .sheet { width: 100%; max-width: 560px; background: var(--card); border-radius: 22px 22px 0 0; padding: 22px 16px calc(22px + env(safe-area-inset-bottom)); }
+  .sheet h2 { margin: 0 0 4px; font-size: 22px; }
+  .sheet p { margin: 0 0 16px; color: var(--muted); }
+  .pick { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--card); font-size: 18px; font-weight: 700; }
+  .pick + .pick { margin-top: 8px; }
+  .pick .av { width: 36px; height: 36px; font-size: 15px; }
+  .pick[aria-current="true"] { border-color: var(--pc); background: color-mix(in srgb, var(--pc) 10%, var(--card)); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
+    background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px;
+    opacity: 0; transition: .2s; pointer-events: none; z-index: 30; max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Trip Split <span id="sync" class="sync">Local</span></div>
+  <button id="meBtn" class="me" type="button" aria-label="Switch person"></button>
+  <div class="tzrow">
+    <span>Day closes at 12 AM in</span>
+    <div class="seg seg-sm" id="tz" role="group" aria-label="Time zone">
+      <button type="button" data-v="KR">🇰🇷 Korea</button>
+      <button type="button" data-v="JP">🇯🇵 Japan</button>
+    </div>
+  </div>
+</header>
+<button id="banner" class="banner" type="button" hidden></button>
+
+<main>
+  <!-- Add -->
+  <section id="view-add">
+    <form id="form" class="card" autocomplete="off">
+      <label class="lbl" for="amount">Amount</label>
+      <div class="amount-row">
+        <div class="amount-wrap">
+          <span class="sym" id="sym">₩</span>
+          <input id="amount" inputmode="decimal" placeholder="0" enterkeyhint="next" aria-label="Amount">
+        </div>
+        <div class="seg" id="cur" role="group" aria-label="Currency">
+          <button type="button" data-v="KRW">KRW</button>
+          <button type="button" data-v="JPY">JPY</button>
+        </div>
+      </div>
+      <label class="lbl" for="note">What for</label>
+      <input id="note" placeholder="Dinner, taxi, tickets…" maxlength="60" enterkeyhint="done">
+      <span class="lbl">Paid by</span>
+      <div class="chips" id="payer"></div>
+      <span class="lbl">Split between</span>
+      <div class="chips" id="split"></div>
+      <button class="primary" type="submit">Add expense</button>
+      <p class="hint" id="hint"></p>
+    </form>
+    <h2 class="h">Logged today</h2>
+    <div id="addLog"></div>
+  </section>
+
+  <!-- Today -->
+  <section id="view-today" hidden>
+    <div class="card hero">
+      <div class="muted small" id="closesAt"></div>
+      <div class="big" id="countdown">–</div>
+    </div>
+    <h2 class="h">If the day ended now</h2>
+    <div id="todaySummary"></div>
+    <h2 class="h">Everything logged today</h2>
+    <div id="todayLog"></div>
+  </section>
+
+  <!-- Days -->
+  <section id="view-days" hidden>
+    <div id="days"></div>
+  </section>
+
+  <p class="note-local" id="localNote" hidden>Local mode: expenses are saved on this phone only. Connect Firebase in <code>config.js</code> to share them between all three phones.</p>
+</main>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-view="add" aria-selected="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Add
+  </button>
+  <button role="tab" data-view="today" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today
+  </button>
+  <button role="tab" data-view="days" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Summaries
+    <span class="dot" id="daysDot" hidden></span>
+  </button>
+</nav>
+
+<div id="who" class="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
+    <h2 id="whoTitle">Who's using this phone?</h2>
+    <p>Pick your name. You can switch any time from the top right.</p>
+    <div id="whoList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script type="module">
+const PEOPLE = ['3BNDAT', 'Manar', 'Raghad'];
+const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' } };
+const ZONES = { KR: { name: 'Korea', tz: 'Asia/Seoul' }, JP: { name: 'Japan', tz: 'Asia/Tokyo' } };
+const DAY = 86400e3;
+// Units per 1 SAR. Used until live rates load (and kept if the phone is offline).
+const FALLBACK_RATES = { KRW: 354, JPY: 42.1 };
+const cfg = window.TRIP_CONFIG || {};
+
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pIdx = p => Math.max(0, PEOPLE.indexOf(p));
+const av = p => `<span class="av c${pIdx(p)}">${esc(p[0])}</span>`;
+const uid = () => (crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+let zone = ZONES[ls.get('tripsplit.zone', 'KR')] ? ls.get('tripsplit.zone', 'KR') : 'KR';
+const tz = () => ZONES[zone].tz;
+// Milliseconds the chosen zone is ahead of UTC at a given moment.
+function offsetAt(ts) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz(), hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(ts).map(x => [x.type, +x.value]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ts / 1000) * 1000;
+}
+const dayKey = ts => new Date(ts + offsetAt(ts)).toISOString().slice(0, 10);
+const todayKey = () => dayKey(Date.now());
+const fmtDay = key => new Date(key + 'T00:00:00Z').toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const fmtTime = ts => new Date(ts).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit', timeZone: tz() });
+const money = (n, c) => c === 'SAR'
+  ? 'SAR ' + n.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  : CUR[c].sym + Math.round(n).toLocaleString('en');
+const msToMidnight = () => { const now = Date.now(), local = now + offsetAt(now); return Math.ceil(local / DAY) * DAY - local || DAY; };
+
+// ---------- exchange rates (units per 1 SAR) ----------
+let rates = ls.get('tripsplit.rates', null)?.rates || FALLBACK_RATES;
+async function loadRates() {
+  try {
+    const j = await (await fetch('https://open.er-api.com/v6/latest/SAR')).json();
+    if (j.result === 'success' && j.rates?.KRW && j.rates?.JPY) {
+      rates = { KRW: j.rates.KRW, JPY: j.rates.JPY };
+      ls.set('tripsplit.rates', { rates, at: Date.now() });
+      render();
+    }
+  } catch {}
+}
+// Each expense keeps the SAR value from when it was logged, so summaries don't shift with the rate.
+const toSAR = e => typeof e.sar === 'number' ? e.sar : e.amount / rates[e.currency];
+const rateText = () => `1 SAR = ₩${rates.KRW.toFixed(0)} · ¥${rates.JPY.toFixed(1)}`;
+
+// ---------- storage: local (this phone) or Firebase (shared) ----------
+function localStore() {
+  const KEY = 'tripsplit.expenses';
+  const subs = [];
+  const read = () => ls.get(KEY, []);
+  const emit = () => subs.forEach(f => f(read()));
+  addEventListener('storage', e => { if (e.key === KEY) emit(); });
+  return {
+    mode: 'local',
+    subscribe(f) { subs.push(f); f(read()); },
+    add(e) { ls.set(KEY, [...read(), e]); emit(); },
+    remove(id) { ls.set(KEY, read().filter(x => x.id !== id)); emit(); },
+  };
+}
+
+async function firebaseStore() {
+  const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
+  const { initializeApp } = await import(base + 'firebase-app.js');
+  const fs = await import(base + 'firebase-firestore.js');
+  const app = initializeApp(cfg.firebase);
+  // Cache on the phone so logging works without signal and syncs when back online.
+  const db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache() });
+  const col = fs.collection(db, 'trips', cfg.tripId, 'expenses');
+  return {
+    mode: 'cloud',
+    subscribe(f, status) {
+      fs.onSnapshot(col, { includeMetadataChanges: true }, snap => {
+        status(snap.metadata.hasPendingWrites || snap.metadata.fromCache ? 'wait' : 'ok');
+        f(snap.docs.map(d => d.data()));
+      }, err => { console.error(err); status('err'); });
+    },
+    add(e) { fs.setDoc(fs.doc(col, e.id), e).catch(err => { console.error(err); toast('Could not save. Check connection.'); }); },
+    remove(id) { fs.deleteDoc(fs.doc(col, id)).catch(err => console.error(err)); },
+  };
+}
+
+// ---------- settlement ----------
+function settle(list) {
+  const bal = Object.fromEntries(PEOPLE.map(p => [p, 0]));
+  for (const e of list) {
+    const v = toSAR(e);
+    bal[e.payer] += v;
+    for (const p of e.split) bal[p] -= v / e.split.length;
+  }
+  // Greedy: biggest debtor pays biggest creditor. With three people this is at most two transfers.
+  const EPS = 0.005;
+  const cred = PEOPLE.filter(p => bal[p] > EPS).map(p => ({ p, v: bal[p] })).sort((a, b) => b.v - a.v);
+  const debt = PEOPLE.filter(p => bal[p] < -EPS).map(p => ({ p, v: -bal[p] })).sort((a, b) => b.v - a.v);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < debt.length && j < cred.length) {
+    const v = Math.min(debt[i].v, cred[j].v);
+    if (v >= EPS) out.push({ from: debt[i].p, to: cred[j].p, amount: v });
+    debt[i].v -= v; cred[j].v -= v;
+    if (debt[i].v < EPS) i++;
+    if (cred[j].v < EPS) j++;
+  }
+  return out;
+}
+
+function summaryHTML(list) {
+  if (!list.length) return '<div class="empty">Nothing logged.</div>';
+  const total = list.reduce((s, e) => s + toSAR(e), 0);
+  const spent = Object.keys(CUR).map(c => {
+    const l = list.filter(e => e.currency === c);
+    return l.length ? money(l.reduce((s, e) => s + e.amount, 0), c) : '';
+  }).filter(Boolean).join(' + ');
+  const paid = PEOPLE.map(p => {
+    const v = list.filter(e => e.payer === p).reduce((s, e) => s + toSAR(e), 0);
+    return `<div><div class="n">${esc(p)}</div><div class="v">${v.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>`;
+  }).join('');
+  const xfers = settle(list);
+  const xferHTML = xfers.length
+    ? xfers.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><span class="amt">${money(x.amount, 'SAR')}</span></div>`).join('')
+    : '<div class="square">All square, nobody owes anything</div>';
+  return `<div class="cur-block">
+    <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${money(total, 'SAR')} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
+    <div class="paid">${paid}</div>${xferHTML}
+    <p class="rates">Spent ${spent}. Each expense is converted at the rate when it was logged.</p></div>`;
+}
+
+function logHTML(list, emptyText) {
+  if (!list.length) return `<div class="log"><div class="empty">${emptyText}</div></div>`;
+  return '<div class="log">' + [...list].sort((a, b) => b.ts - a.ts).map(e => {
+    const split = e.split.length === PEOPLE.length ? 'split 3 ways' : 'for ' + e.split.join(' & ');
+    return `<button class="row" type="button" data-id="${esc(e.id)}">${av(e.payer)}
+      <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}</div></span>
+      <span class="amt">${money(e.amount, e.currency)}<div class="m">≈ ${money(toSAR(e), 'SAR')}</div></span></button>`;
+  }).join('') + '</div>';
+}
+
+// ---------- state ----------
+let expenses = [];
+let me = ls.get('tripsplit.me', null);
+let currency = ls.get('tripsplit.cur', 'KRW');
+let payer = me || PEOPLE[0];
+let split = new Set(PEOPLE);
+let view = 'add';
+let currentDay = todayKey();
+
+function closedDays() {
+  const t = todayKey();
+  return [...new Set(expenses.map(e => e.day))].filter(d => d < t).sort().reverse();
+}
+
+function render() {
+  const t = todayKey();
+  const today = expenses.filter(e => e.day === t);
+
+  $('#meBtn').className = `me c${pIdx(me)}`;
+  $('#meBtn').innerHTML = me ? `${av(me)}${esc(me)}` : 'Choose';
+  $('#sym').textContent = CUR[currency].sym;
+  document.querySelectorAll('#cur button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === currency));
+  document.querySelectorAll('#tz button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === zone));
+  $('#closesAt').textContent = `Today's summary locks in at 12 AM ${ZONES[zone].name} time`;
+  updateHint();
+  $('#payer').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${p === payer}">${av(p)}${esc(p)}</button>`).join('');
+  $('#split').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${split.has(p)}">${av(p)}${esc(p)}</button>`).join('');
+
+  $('#addLog').innerHTML = logHTML(today, 'Nothing yet today. Add the first expense above.');
+  $('#todaySummary').innerHTML = today.length ? `<div class="card">${summaryHTML(today)}</div>` : `<div class="log"><div class="empty">No expenses today yet.</div></div>`;
+  $('#todayLog').innerHTML = logHTML(today, 'Nothing logged yet.');
+
+  const days = closedDays();
+  let html = '';
+  if (days.length) {
+    html += `<h2 class="h">Whole trip so far</h2><div class="card">${summaryHTML(expenses)}<p class="muted small" style="margin:12px 0 0">Use this if you'd rather settle once at the end instead of every day.</p></div>`;
+    html += `<h2 class="h">Daily summaries</h2>`;
+    html += days.map(d => {
+      const l = expenses.filter(e => e.day === d);
+      return `<div class="card"><div class="day-title"><b>${fmtDay(d)}</b><span class="muted small">${l.length} item${l.length > 1 ? 's' : ''}</span></div>
+        ${summaryHTML(l)}<details><summary>Show the full log</summary>${logHTML(l, '')}</details></div>`;
+    }).join('');
+  } else {
+    html = `<div class="card hero"><div class="big" style="font-size:22px">No summaries yet</div><p class="muted" style="margin:6px 0 0">At midnight each day's expenses are locked in here, with who sends what.</p></div>`;
+  }
+  $('#days').innerHTML = html;
+
+  updateBanner();
+}
+
+function updateBanner() {
+  const latest = closedDays()[0];
+  const seen = ls.get('tripsplit.seen', '');
+  const fresh = latest && latest > seen;
+  $('#daysDot').hidden = !fresh;
+  $('#banner').hidden = !fresh || view === 'days';
+  if (fresh) $('#banner').textContent = `🌙 ${fmtDay(latest)} is closed. See who sends what →`;
+}
+
+function show(v) {
+  view = v;
+  for (const s of ['add', 'today', 'days']) $('#view-' + s).hidden = s !== v;
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === v));
+  if (v === 'days') { const latest = closedDays()[0]; if (latest) ls.set('tripsplit.seen', latest); }
+  updateBanner();
+  scrollTo({ top: 0 });
+}
+
+function tick() {
+  const ms = msToMidnight();
+  const h = Math.floor(ms / 3600e3), m = Math.floor(ms % 3600e3 / 60e3);
+  $('#countdown').textContent = h ? `${h}h ${m}m left` : `${m}m left`;
+  if (todayKey() !== currentDay) { currentDay = todayKey(); render(); }
+}
+
+const parseAmount = () => Math.round(parseFloat($('#amount').value.replace(/[^\d.]/g, '')));
+function updateHint() {
+  const a = parseAmount();
+  $('#hint').textContent = (a > 0 ? `≈ ${money(a / rates[currency], 'SAR')} · ` : '') + rateText();
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function pickWho() {
+  $('#whoList').innerHTML = PEOPLE.map((p, i) => `<button class="pick c${i}" type="button" data-p="${esc(p)}" aria-current="${p === me}">${av(p)}${esc(p)}</button>`).join('');
+  $('#who').hidden = false;
+}
+
+// ---------- events ----------
+$('#cur').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  currency = b.dataset.v; ls.set('tripsplit.cur', currency); render();
+});
+$('#tz').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  zone = b.dataset.v; ls.set('tripsplit.zone', zone);
+  currentDay = todayKey(); render(); tick();
+  toast(`Days now close at 12 AM ${ZONES[zone].name} time`);
+});
+$('#amount').addEventListener('input', updateHint);
+$('#payer').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  payer = b.dataset.p; render();
+});
+$('#split').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const p = b.dataset.p;
+  if (split.has(p)) { if (split.size > 1) split.delete(p); else return toast('At least one person has to share it'); }
+  else split.add(p);
+  render();
+});
+$('#form').addEventListener('submit', e => {
+  e.preventDefault();
+  const amount = parseAmount();
+  if (!amount || amount <= 0) { $('#amount').focus(); return toast('Enter an amount'); }
+  const ts = Date.now();
+  const exp = {
+    id: uid(), ts, day: dayKey(ts), payer, amount, currency,
+    rate: rates[currency], sar: Math.round(amount / rates[currency] * 100) / 100,
+    note: $('#note').value.trim().slice(0, 60), split: PEOPLE.filter(p => split.has(p)), by: me || payer,
+  };
+  store.add(exp);
+  toast(`Added ${money(amount, currency)}${exp.note ? ' · ' + exp.note : ''}`);
+  navigator.vibrate?.(15);
+  $('#amount').value = ''; $('#note').value = '';
+  payer = me || payer; split = new Set(PEOPLE);
+  $('#amount').blur(); $('#note').blur();
+  render();
+});
+$('#note').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#form').requestSubmit(); } });
+$('#amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#note').focus(); } });
+
+document.addEventListener('click', e => {
+  const row = e.target.closest('.row[data-id]'); if (!row) return;
+  const x = expenses.find(v => v.id === row.dataset.id); if (!x) return;
+  if (confirm(`Delete "${x.note || 'Expense'}" (${money(x.amount, x.currency)} paid by ${x.payer})?`)) { store.remove(x.id); toast('Deleted'); }
+});
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+$('#banner').addEventListener('click', () => show('days'));
+$('#meBtn').addEventListener('click', pickWho);
+$('#whoList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  me = b.dataset.p; payer = me; ls.set('tripsplit.me', me);
+  $('#who').hidden = true; render();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+
+// ---------- start ----------
+const setSync = s => {
+  const el = $('#sync');
+  el.className = 'sync ' + s;
+  el.textContent = { ok: 'Synced', wait: 'Syncing…', err: 'Offline', local: 'Local' }[s];
+};
+let store;
+if (cfg.firebase && cfg.tripId) {
+  try { store = await firebaseStore(); }
+  catch (err) { console.error(err); toast('Could not reach Firebase. Using local mode.'); }
+}
+store ||= localStore();
+$('#localNote').hidden = store.mode !== 'local';
+setSync(store.mode === 'local' ? 'local' : 'wait');
+store.subscribe(list => {
+  expenses = list.filter(e => PEOPLE.includes(e.payer) && CUR[e.currency] && e.split?.length && e.split.every(p => PEOPLE.includes(p)));
+  render();
+}, setSync);
+
+render(); tick(); setInterval(tick, 20e3);
+loadRates();
+if (!me) pickWho();
+</script>
+</body>
+</html>

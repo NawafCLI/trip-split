@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only the trip's expenses are reachable, and only by someone who knows the
+    // private tripId from config.js. Writes must look like a real expense.
+    match /trips/{tripId}/expenses/{id} {
+      allow read, delete: if true;
+      allow create, update: if request.resource.data.payer in ['3BNDAT', 'Manar', 'Raghad']
+        && request.resource.data.currency in ['KRW', 'JPY']
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.amount < 100000000
+        && request.resource.data.split is list
+        && request.resource.data.split.size() > 0
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 60;
+    }
+  }
+}
