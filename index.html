@@ -189,6 +189,26 @@
   .pick .av { width: 36px; height: 36px; font-size: 15px; }
   .pick[aria-current="true"] { border-color: var(--pc); background: color-mix(in srgb, var(--pc) 10%, var(--card)); }
 
+  .sheet.detail { max-height: 90vh; overflow-y: auto; }
+  .d-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .d-note { font-size: 20px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+  .d-amt { text-align: right; font-size: 26px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .d-sar { text-align: right; color: var(--muted); font-weight: 600; font-size: 14px; }
+  .d-meta { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .d-sum { margin: 16px 2px 8px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .shares { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .share { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  .share + .share { border-top: 1px solid var(--line); }
+  .share.off { opacity: .5; }
+  .share .mid { flex: 1; min-width: 0; }
+  .share .t { font-weight: 600; }
+  .share .m { font-size: 13px; color: var(--muted); }
+  .share .amt { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .share .amt .m { font-weight: 500; }
+  .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .btn { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; padding: 13px; font-weight: 700; font-size: 16px; }
+  .btn.danger { border-color: var(--bad); color: var(--bad); }
+  .btn.danger.armed { background: var(--bad); color: var(--bg); }
   .toast {
     position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
     background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px;
@@ -272,6 +292,16 @@
     <span class="dot" id="daysDot" hidden></span>
   </button>
 </nav>
+
+<div id="detail" class="overlay" hidden>
+  <div class="sheet detail" role="dialog" aria-modal="true" aria-label="Expense details">
+    <div id="detailBody"></div>
+    <div class="sheet-actions">
+      <button class="btn" id="dClose" type="button">Close</button>
+      <button class="btn danger" id="dDelete" type="button">Delete</button>
+    </div>
+  </div>
+</div>
 
 <div id="who" class="overlay" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
@@ -445,7 +475,38 @@ function closedDays() {
   return [...new Set(expenses.map(e => e.day))].filter(d => d < t).sort().reverse();
 }
 
+let detailId = null, armTimer;
+function detailHTML(x) {
+  const c = x.currency, n = x.split.length;
+  const share = x.amount / n, shareSar = toSAR(x) / n;
+  const sarSub = v => c === 'SAR' ? '' : `<div class="m">≈ ${money(v, 'SAR')}</div>`;
+  const rows = PEOPLE.map(p => {
+    const inSplit = x.split.includes(p);
+    const status = inSplit
+      ? (p === x.payer ? 'Paid, this is their own share' : `Owes ${esc(x.payer)}`)
+      : (p === x.payer ? 'Paid, not sharing' : 'Not in this split');
+    return `<div class="share${inSplit ? '' : ' off'}">${av(p)}
+      <span class="mid"><div class="t">${esc(p)}</div><div class="m">${status}</div></span>
+      <span class="amt">${inSplit ? money(share, c) + sarSub(shareSar) : '–'}</span></div>`;
+  }).join('');
+  return `<div class="d-top"><div class="d-note">${esc(x.note || 'Expense')}</div>
+      <div><div class="d-amt">${money(x.amount, c)}</div>${c === 'SAR' ? '' : `<div class="d-sar">≈ ${money(toSAR(x), 'SAR')}</div>`}</div></div>
+    <div class="d-meta">Paid by ${esc(x.payer)} · ${fmtDay(x.day)}, ${fmtTime(x.ts)}</div>
+    <div class="d-sum">Split ${n === PEOPLE.length ? '3 ways' : n === 1 ? 'on one person' : n + ' ways'} · ${money(share, c)} each</div>
+    <div class="shares">${rows}</div>`;
+}
+function resetDelete() {
+  clearTimeout(armTimer);
+  const b = $('#dDelete'); b.classList.remove('armed'); b.textContent = 'Delete';
+}
+function openDetail(x) {
+  detailId = x.id; $('#detailBody').innerHTML = detailHTML(x);
+  resetDelete(); $('#detail').hidden = false;
+}
+function closeDetail() { detailId = null; $('#detail').hidden = true; resetDelete(); }
+
 function render() {
+  if (detailId && !expenses.some(e => e.id === detailId)) closeDetail();  // deleted from another phone
   const t = todayKey();
   const today = expenses.filter(e => e.day === t);
 
@@ -575,7 +636,20 @@ $('#amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 document.addEventListener('click', e => {
   const row = e.target.closest('.row[data-id]'); if (!row) return;
   const x = expenses.find(v => v.id === row.dataset.id); if (!x) return;
-  if (confirm(`Delete "${x.note || 'Expense'}" (${money(x.amount, x.currency)} paid by ${x.payer})?`)) { store.remove(x.id); toast('Deleted'); }
+  openDetail(x);
+});
+$('#dClose').addEventListener('click', closeDetail);
+$('#detail').addEventListener('click', e => { if (e.target === $('#detail')) closeDetail(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && detailId) closeDetail(); });
+$('#dDelete').addEventListener('click', () => {
+  const b = $('#dDelete');
+  if (!b.classList.contains('armed')) {
+    b.classList.add('armed'); b.textContent = 'Tap again to delete';
+    armTimer = setTimeout(resetDelete, 4000);
+    return;
+  }
+  const id = detailId;
+  closeDetail(); store.remove(id); toast('Deleted');
 });
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
 $('#banner').addEventListener('click', () => show('days'));
