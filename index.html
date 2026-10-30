@@ -136,6 +136,11 @@
 
   /* Summaries */
   .hero { text-align: center; padding: 18px 16px; }
+  .daynav { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+  .daynav button { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--card); font-size: 28px; line-height: 1; color: var(--ink); padding: 0 0 3px; }
+  .daynav button:disabled { opacity: .3; }
+  .dn-mid { flex: 1; text-align: center; min-width: 0; }
+  .dn-title { font-size: 20px; font-weight: 750; letter-spacing: -.01em; }
   .big { font-size: 28px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
   .cur-block + .cur-block { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
   .cur-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
@@ -268,13 +273,18 @@
 
   <!-- Today -->
   <section id="view-today" hidden>
-    <div class="card hero">
+    <div class="daynav">
+      <button id="dayPrev" type="button" aria-label="Previous day">‹</button>
+      <div class="dn-mid"><div class="dn-title" id="dayTitle"></div><div class="muted small" id="dayDate"></div></div>
+      <button id="dayNext" type="button" aria-label="Next day">›</button>
+    </div>
+    <div class="card hero" id="heroCard">
       <div class="muted small" id="closesAt"></div>
       <div class="big" id="countdown">–</div>
     </div>
-    <h2 class="h">If the day ended now</h2>
+    <h2 class="h" id="sumHead">If the day ended now</h2>
     <div id="todaySummary"></div>
-    <h2 class="h">Everything logged today</h2>
+    <h2 class="h" id="logHead">Everything logged today</h2>
     <div id="todayLog"></div>
   </section>
 
@@ -320,8 +330,10 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="config.js"></script>
-<script src="calc.js"></script>
+<!-- Bump ?v= on both when config.js or calc.js change: phones cache each file separately for 10 minutes,
+     so a new page must never pair with an old copy of these. calc.js stays backward compatible. -->
+<script src="config.js?v=8"></script>
+<script src="calc.js?v=8"></script>
 <script type="module">
 const PEOPLE = ['Nawaf', 'Manar', 'Raghad'];
 const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' }, SAR: { sym: '﷼' } };
@@ -466,6 +478,10 @@ let payer = me || PEOPLE[0];
 let split = new Set(PEOPLE);
 let view = 'add';
 let currentDay = todayKey();
+let viewDay = null;                     // null = follow today; otherwise a past day, "YYYY-MM-DD"
+const shownDay = () => viewDay || todayKey();
+const shiftDay = (key, n) => new Date(Date.parse(key + 'T00:00:00Z') + n * DAY).toISOString().slice(0, 10);
+const earliestDay = () => expenses.reduce((m, e) => (e.day < m ? e.day : m), todayKey());
 
 function closedDays() {
   const t = todayKey();
@@ -506,7 +522,10 @@ function closeDetail() { detailId = null; $('#detail').hidden = true; resetDelet
 function render() {
   if (detailId && !expenses.some(e => e.id === detailId)) closeDetail();  // deleted from another phone
   const t = todayKey();
+  if (viewDay && viewDay >= t) viewDay = null;
   const today = expenses.filter(e => e.day === t);
+  const dayKey_ = shownDay(), isToday = dayKey_ === t;
+  const shown = isToday ? today : expenses.filter(e => e.day === dayKey_);
 
   $('#meBtn').className = `me c${pIdx(me)}`;
   $('#meBtn').innerHTML = me ? `${av(me)}${esc(me)}` : 'Choose';
@@ -514,13 +533,20 @@ function render() {
   document.querySelectorAll('#cur button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === currency));
   document.querySelectorAll('#tz button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === zone));
   $('#closesAt').textContent = `Today's summary locks in at 12 AM ${ZONES[zone].name} time`;
+  $('#dayTitle').textContent = isToday ? 'Today' : dayKey_ === shiftDay(t, -1) ? 'Yesterday' : fmtDay(dayKey_).split(',')[0];
+  $('#dayDate').textContent = fmtDay(dayKey_) + (isToday ? '' : ` · ${shown.length} expense${shown.length === 1 ? '' : 's'}`);
+  $('#dayPrev').disabled = dayKey_ <= earliestDay();
+  $('#dayNext').disabled = isToday;
+  $('#heroCard').hidden = !isToday;
+  $('#sumHead').textContent = isToday ? 'If the day ended now' : 'Who sends what';
+  $('#logHead').textContent = isToday ? 'Everything logged today' : 'Everything logged';
   updateHint();
   $('#payer').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${p === payer}">${av(p)}${esc(p)}</button>`).join('');
   $('#split').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${split.has(p)}">${av(p)}${esc(p)}</button>`).join('');
 
   $('#addLog').innerHTML = logHTML(today, 'Nothing yet today. Add the first expense above.');
-  $('#todaySummary').innerHTML = today.length ? `<div class="card">${summaryHTML(today)}</div>` : `<div class="log"><div class="empty">No expenses today yet.</div></div>`;
-  $('#todayLog').innerHTML = logHTML(today, 'Nothing logged yet.');
+  $('#todaySummary').innerHTML = shown.length ? `<div class="card">${summaryHTML(shown)}</div>` : `<div class="log"><div class="empty">${isToday ? 'No expenses today yet.' : 'No expenses on this day.'}</div></div>`;
+  $('#todayLog').innerHTML = logHTML(shown, 'Nothing logged yet.');
 
   const days = closedDays();
   let html = '';
@@ -550,7 +576,10 @@ function updateBanner() {
 }
 
 function show(v) {
+  const resetDay = v === 'today' && view !== 'today' && viewDay;   // coming back to Today starts on today
+  if (resetDay) viewDay = null;
   view = v;
+  if (resetDay) render();
   for (const s of ['add', 'today', 'days']) $('#view-' + s).hidden = s !== v;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === v));
   if (v === 'days') { const latest = closedDays()[0]; if (latest) ls.set('tripsplit.seen', latest); }
@@ -659,6 +688,15 @@ $('#dDelete').addEventListener('click', () => {
   closeDetail(); store.remove(id); toast('Deleted');
 });
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+$('#dayPrev').addEventListener('click', () => {
+  const d = shiftDay(shownDay(), -1);
+  if (d >= earliestDay()) { viewDay = d; render(); }
+});
+$('#dayNext').addEventListener('click', () => {
+  const d = shiftDay(shownDay(), 1);
+  viewDay = d >= todayKey() ? null : d; render();
+});
+
 $('#banner').addEventListener('click', () => show('days'));
 $('#meBtn').addEventListener('click', pickWho);
 $('#whoList').addEventListener('click', e => {
