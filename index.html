@@ -150,9 +150,6 @@
   .paid .n { font-size: 12px; color: var(--muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .paid .v { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
   .xfer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); }
-  .payer + .payer { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
-  .payer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 700; font-size: 16px; }
-  .payer-head .sub { margin-left: auto; color: var(--muted); font-weight: 600; font-size: 13px; text-align: right; }
   .xfer + .xfer { margin-top: 6px; }
   .xfer .who { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; }
   .xfer .arrow { color: var(--muted); font-weight: 400; }
@@ -332,8 +329,8 @@
 
 <!-- Bump ?v= on both when config.js or calc.js change: phones cache each file separately for 10 minutes,
      so a new page must never pair with an old copy of these. calc.js stays backward compatible. -->
-<script src="config.js?v=8"></script>
-<script src="calc.js?v=8"></script>
+<script src="config.js?v=9"></script>
+<script src="calc.js?v=9"></script>
 <script type="module">
 const PEOPLE = ['Nawaf', 'Manar', 'Raghad'];
 const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' }, SAR: { sym: '﷼' } };
@@ -431,30 +428,27 @@ const centsOf = e => TripCalc.toCents(toSAR(e));
 const settle = list => TripCalc.settle(list, centsOf);
 const sarCents = c => money(c / 100, 'SAR');
 
-const settleByPayer = list => TripCalc.settleByPayer(list, centsOf);
+const settlePairs = list => TripCalc.settlePairs(list, centsOf);
 
-// Each person's expenses are settled on their own: "Manar sends Raghad" only ever adds up
-// Raghad's expenses, never anyone else's.
+// One panel: what each person paid, then one combined line per pair of people. What Manar sends
+// Raghad only ever comes from expenses between Manar and Raghad, nothing is routed through anyone.
 function summaryHTML(all) {
   if (!all.length) return '<div class="empty">Nothing logged.</div>';
   const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
   if (!list.length) return '<div class="empty">Nothing counted: every expense here is set to "Don\'t count".</div>';
-  const groups = settleByPayer(list);
-  const total = groups.reduce((s, g) => s + g.paid, 0);
+  const res = settlePairs(list);
   const spent = Object.keys(CUR).map(c => {
     const l = list.filter(e => e.currency === c);
     return l.length ? money(l.reduce((s, e) => s + e.amount, 0), c) : '';
   }).filter(Boolean).join(' + ');
-  const sections = groups.map(g => `<div class="payer ${'c' + pIdx(g.payer)}">
-      <div class="payer-head">${av(g.payer)}<span>${esc(g.payer)}'s expenses</span><span class="sub">paid ${sarCents(g.paid)} · ${g.items} item${g.items > 1 ? 's' : ''}</span></div>
-      ${g.owes.length
-        ? g.owes.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(g.payer)}</span><span class="amt">${sarCents(x.cents)}</span></div>`).join('')
-        : `<div class="square">Nobody owes ${esc(g.payer)} anything here</div>`}
-    </div>`).join('');
+  const paid = PEOPLE.map(p => `<div><div class="n">${esc(p)}</div><div class="v">${(res.paid[p] / 100).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>`).join('');
+  const xferHTML = res.transfers.length
+    ? res.transfers.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><span class="amt">${sarCents(x.cents)}</span></div>`).join('')
+    : '<div class="square">All square, nobody owes anything</div>';
   return `<div class="cur-block">
-    <div class="cur-head"><span class="tag">IN SAR</span><span class="muted small">Total ${sarCents(total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
-    ${sections}
-    <p class="rates">Spent ${spent}. Each person's expenses are settled on their own, and each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p></div>`;
+    <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${sarCents(res.total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
+    <div class="paid">${paid}</div>${xferHTML}
+    <p class="rates">Spent ${spent}. Each pair settles directly, nothing goes through a third person. Each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p></div>`;
 }
 
 function logHTML(list, emptyText) {

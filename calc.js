@@ -91,7 +91,31 @@
     return out;
   }
 
-  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer };
+  // Settle every pair of people directly, with nobody in the middle: for each two people, what
+  // one owes the other across ALL their expenses together, netted into a single transfer.
+  // So what Manar sends Raghad only ever comes from expenses between Manar and Raghad.
+  // Everyone ends up with the same net position as settle(); only the routing differs.
+  function settlePairs(list, centsOf) {
+    const owe = {}, paid = {};
+    PEOPLE.forEach(a => { paid[a] = 0; owe[a] = {}; PEOPLE.forEach(b => { owe[a][b] = 0; }); });
+    let total = 0;
+    for (const e of list) {
+      const c = centsOf(e);
+      total += c; paid[e.payer] += c;
+      shareOut(c, e.split.length, e.id).forEach((share, i) => { if (e.split[i] !== e.payer) owe[e.split[i]][e.payer] += share; });
+    }
+    const transfers = [];
+    PEOPLE.forEach((a, i) => PEOPLE.slice(i + 1).forEach(b => {
+      const net = owe[a][b] - owe[b][a];
+      if (net > 0) transfers.push({ from: a, to: b, cents: net });
+      else if (net < 0) transfers.push({ from: b, to: a, cents: -net });
+    }));
+    transfers.sort((x, y) => y.cents - x.cents);
+    return { total, paid, transfers };
+  }
+
+  // (kept so an older cached page that still asks for it keeps working)
+  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TripCalc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

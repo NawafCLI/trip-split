@@ -1,6 +1,6 @@
 // Run with: node calc.test.js
 const assert = require('assert');
-const { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer } = require('./calc.js');
+const { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs } = require('./calc.js');
 
 let n = 0;
 const eq = (a, b, msg) => { assert.deepStrictEqual(a, b, msg); n++; };
@@ -68,6 +68,21 @@ eq(byName.Manar.owes, [{ from: 'Raghad', cents: 4550 }]);
 const onlyR = settleByPayer(real.filter(e => e.payer === 'Raghad'), e => toCents(e.sar));
 eq(onlyR[0].owes, byName.Raghad.owes);
 
+// ---- pair by pair: one combined line per pair, nobody in the middle ----
+const pr = settlePairs(real, e => toCents(e.sar));
+eq(pr.total, 247963);
+eq(pr.paid, { Nawaf: 61663, Manar: 9100, Raghad: 177200 });
+eq(pr.transfers, [
+  { from: 'Nawaf', to: 'Raghad', cents: 66933 - (14715 + 1401) },   // 669.33 minus the 161.16 Raghad owes Nawaf
+  { from: 'Manar', to: 'Raghad', cents: 32634 - 4550 },            // 326.34 minus the 45.50 Raghad owes Manar
+  { from: 'Manar', to: 'Nawaf', cents: 14715 + 1402 },
+]);
+// only Raghad's five expenses: exactly 669.33 and 326.34
+const pr5 = settlePairs(real.filter(e => e.payer === 'Raghad'), e => toCents(e.sar));
+eq(pr5.transfers, [{ from: 'Nawaf', to: 'Raghad', cents: 66933 }, { from: 'Manar', to: 'Raghad', cents: 32634 }]);
+// a pair that owes each other nothing is not listed
+eq(settlePairs([{ id: 'p', payer: 'Nawaf', split: ['Manar'] }, { id: 'q', payer: 'Manar', split: ['Nawaf'] }], () => 1000).transfers, []);
+
 // the example from the start: 200 and 105, split three ways
 const ex = settle([
   { id: 'a', payer: 'Nawaf', split: PEOPLE }, { id: 'b', payer: 'Raghad', split: PEOPLE },
@@ -123,6 +138,23 @@ for (let t = 0; t < 2000; t++) {
     eq(g.owes.every(o => o.from !== g.payer && o.cents > 0), true);
   }
   eq(groups.reduce((s, g) => s + g.paid, 0), list.reduce((s, e) => s + e.cents, 0));
+}
+
+// random lists: pair transfers give everyone the same net position as settle(), exactly
+seed = 4242;
+for (let t = 0; t < 3000; t++) {
+  const list = Array.from({ length: 1 + Math.floor(rnd() * 10) }, (_, i) => {
+    const split = PEOPLE.filter(() => rnd() < 0.6);
+    return { id: 'z' + t + '_' + i, payer: PEOPLE[Math.floor(rnd() * 3)], split: split.length ? split : [PEOPLE[Math.floor(rnd() * 3)]], cents: 1 + Math.floor(rnd() * 3000000) };
+  });
+  const a = settle(list, e => e.cents), b = settlePairs(list, e => e.cents);
+  const net = { Nawaf: 0, Manar: 0, Raghad: 0 };
+  for (const x of b.transfers) { net[x.from] -= x.cents; net[x.to] += x.cents; eq(x.cents > 0, true); }
+  eq(net, a.balance);
+  eq(b.transfers.length <= 3, true);
+  const seen = new Set(b.transfers.map(x => [x.from, x.to].sort().join()));
+  eq(seen.size, b.transfers.length);   // at most one line per pair
+  eq(b.total, a.total);
 }
 
 console.log(`all ${n} checks passed`);
