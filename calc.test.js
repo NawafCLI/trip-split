@@ -1,6 +1,6 @@
 // Run with: node calc.test.js
 const assert = require('assert');
-const { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs } = require('./calc.js');
+const { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs, explainPairs } = require('./calc.js');
 
 let n = 0;
 const eq = (a, b, msg) => { assert.deepStrictEqual(a, b, msg); n++; };
@@ -83,6 +83,15 @@ eq(pr5.transfers, [{ from: 'Nawaf', to: 'Raghad', cents: 66933 }, { from: 'Manar
 // a pair that owes each other nothing is not listed
 eq(settlePairs([{ id: 'p', payer: 'Nawaf', split: ['Manar'] }, { id: 'q', payer: 'Manar', split: ['Nawaf'] }], () => 1000).transfers, []);
 
+// ---- the explanation adds up to the same transfers ----
+const ex1 = explainPairs(real, e => toCents(e.sar));
+eq(ex1.filter(x => x.net > 0).map(x => ({ from: x.from, to: x.to, cents: x.net })), settlePairs(real, e => toCents(e.sar)).transfers);
+const nr = ex1.find(x => x.from === 'Nawaf' && x.to === 'Raghad');
+eq([nr.owesTotal, nr.backTotal, nr.net], [66933, 16116, 50817]);
+eq(nr.owes.map(x => x.id).sort(), ['3ae47a', '6d472e', '8e620b']);   // Max's meds, Kyoto, Car Insurance
+eq(nr.back.map(x => x.id).sort(), ['114406', 'ac9f27']);   // the two ₩ entries Nawaf paid with Raghad
+eq(nr.owesTotal - nr.backTotal, nr.net);
+
 // the example from the start: 200 and 105, split three ways
 const ex = settle([
   { id: 'a', payer: 'Nawaf', split: PEOPLE }, { id: 'b', payer: 'Raghad', split: PEOPLE },
@@ -155,6 +164,18 @@ for (let t = 0; t < 3000; t++) {
   const seen = new Set(b.transfers.map(x => [x.from, x.to].sort().join()));
   eq(seen.size, b.transfers.length);   // at most one line per pair
   eq(b.total, a.total);
+}
+
+// random lists: the explanation always reproduces the transfers, line by line
+seed = 99;
+for (let t = 0; t < 3000; t++) {
+  const list = Array.from({ length: 1 + Math.floor(rnd() * 10) }, (_, i) => {
+    const split = PEOPLE.filter(() => rnd() < 0.6);
+    return { id: 'w' + t + '_' + i, payer: PEOPLE[Math.floor(rnd() * 3)], split: split.length ? split : [PEOPLE[Math.floor(rnd() * 3)]], cents: 1 + Math.floor(rnd() * 3000000) };
+  });
+  const ex = explainPairs(list, e => e.cents);
+  eq(ex.filter(x => x.net > 0).map(x => ({ from: x.from, to: x.to, cents: x.net })), settlePairs(list, e => e.cents).transfers);
+  for (const x of ex) { eq(x.owes.reduce((a, b) => a + b.cents, 0), x.owesTotal); eq(x.owesTotal - x.backTotal, x.net); eq(x.net >= 0, true); }
 }
 
 console.log(`all ${n} checks passed`);

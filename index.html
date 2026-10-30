@@ -213,10 +213,25 @@
   .row.skipped { opacity: .5; }
   .row.skipped .amt { text-decoration: line-through; }
   .d-skip { margin: 12px 2px 0; padding: 10px 12px; border-radius: 10px; background: var(--soft); color: var(--muted); font-size: 14px; font-weight: 600; }
-  .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .sheet-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
   .btn { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; padding: 13px; font-weight: 700; font-size: 16px; }
   .btn.danger { border-color: var(--bad); color: var(--bad); }
   .btn.danger.armed { background: var(--bad); color: var(--bg); }
+  .explain-btn { width: 100%; margin-top: 14px; padding: 12px; border-radius: 12px; border: 1.5px solid color-mix(in srgb, var(--accent) 40%, var(--line)); background: none; color: var(--accent); font-weight: 700; font-size: 15px; }
+  .ex-intro { color: var(--muted); font-size: 14px; margin: 4px 0 14px; }
+  .ex-pair { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-top: 10px; }
+  .ex-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+  .ex-title > span:not(.av) { flex: 1; min-width: 0; }
+  .ex-sub { margin: 12px 0 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .ex-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .ex-n { min-width: 0; font-weight: 600; font-size: 15px; }
+  .ex-n small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); }
+  .ex-a { white-space: nowrap; font-weight: 600; }
+  .ex-none { color: var(--muted); font-size: 14px; padding: 6px 0; }
+  .ex-sum { display: flex; justify-content: space-between; padding: 8px 0 0; border-top: 1px solid var(--line); font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ex-final { display: flex; justify-content: space-between; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--card)); font-weight: 800; font-variant-numeric: tabular-nums; }
+  .editbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; font-weight: 600; font-size: 14px; background: color-mix(in srgb, var(--accent) 14%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
+  .editbar button { border: 0; background: none; color: var(--accent); font-weight: 700; font-size: 14px; }
   .toast {
     position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
     background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px;
@@ -242,6 +257,7 @@
 <main>
   <!-- Add -->
   <section id="view-add">
+    <div class="editbar" id="editBar" hidden><span id="editLabel"></span><button type="button" id="editCancel">Cancel</button></div>
     <form id="form" class="card" autocomplete="off">
       <label class="lbl" for="amount">Amount</label>
       <div class="amount-row">
@@ -262,7 +278,7 @@
       <div class="chips" id="payer"></div>
       <span class="lbl">Split between</span>
       <div class="chips" id="split"></div>
-      <button class="primary" type="submit">Add expense</button>
+      <button class="primary" id="submitBtn" type="submit">Add expense</button>
     </form>
     <h2 class="h">Logged today</h2>
     <div id="addLog"></div>
@@ -306,12 +322,21 @@
   </button>
 </nav>
 
+<div id="explain" class="overlay" hidden>
+  <div class="sheet detail" role="dialog" aria-modal="true" aria-label="How the summary is worked out">
+    <h2>How this is worked out</h2>
+    <div id="explainBody"></div>
+    <div class="sheet-actions"><button class="btn" id="exClose" type="button" style="grid-column: 1 / -1">Close</button></div>
+  </div>
+</div>
+
 <div id="detail" class="overlay" hidden>
   <div class="sheet detail" role="dialog" aria-modal="true" aria-label="Expense details">
     <div id="detailBody"></div>
     <div class="sheet-actions">
       <button class="btn" id="dSkip" type="button" style="grid-column: 1 / -1"></button>
       <button class="btn" id="dClose" type="button">Close</button>
+      <button class="btn" id="dEdit" type="button">Edit</button>
       <button class="btn danger" id="dDelete" type="button">Delete</button>
     </div>
   </div>
@@ -329,8 +354,8 @@
 
 <!-- Bump ?v= on both when config.js or calc.js change: phones cache each file separately for 10 minutes,
      so a new page must never pair with an old copy of these. calc.js stays backward compatible. -->
-<script src="config.js?v=9"></script>
-<script src="calc.js?v=9"></script>
+<script src="config.js?v=10"></script>
+<script src="calc.js?v=10"></script>
 <script type="module">
 const PEOPLE = ['Nawaf', 'Manar', 'Raghad'];
 const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' }, SAR: { sym: '﷼' } };
@@ -432,7 +457,7 @@ const settlePairs = list => TripCalc.settlePairs(list, centsOf);
 
 // One panel: what each person paid, then one combined line per pair of people. What Manar sends
 // Raghad only ever comes from expenses between Manar and Raghad, nothing is routed through anyone.
-function summaryHTML(all) {
+function summaryHTML(all, scope) {
   if (!all.length) return '<div class="empty">Nothing logged.</div>';
   const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
   if (!list.length) return '<div class="empty">Nothing counted: every expense here is set to "Don\'t count".</div>';
@@ -448,7 +473,30 @@ function summaryHTML(all) {
   return `<div class="cur-block">
     <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${sarCents(res.total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
     <div class="paid">${paid}</div>${xferHTML}
-    <p class="rates">Spent ${spent}. Each pair settles directly, nothing goes through a third person. Each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p></div>`;
+    <p class="rates">Spent ${spent}. Each pair settles directly, nothing goes through a third person. Each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p>
+    <button class="explain-btn" type="button" data-scope="${esc(scope || 'all')}">How is this worked out?</button></div>`;
+}
+
+function explainHTML(scope) {
+  const all = scope === 'all' ? expenses : expenses.filter(e => e.day === scope);
+  const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
+  const byId = Object.fromEntries(list.map(e => [e.id, e]));
+  const row = it => {
+    const e = byId[it.id];
+    const orig = e.currency === 'SAR' ? '' : ` (≈ ${money(toSAR(e), 'SAR')})`;
+    const sp = e.split.length === PEOPLE.length ? 'split 3 ways' : 'split ' + e.split.join(' & ');
+    return `<div class="ex-row"><span class="ex-n">${esc(e.note || 'No description')}<small>${esc(e.payer)} paid ${money(e.amount, e.currency)}${orig} · ${esc(sp)}</small></span><span class="ex-a">${sarCents(it.cents)}</span></div>`;
+  };
+  const pairs = TripCalc.explainPairs(list, centsOf);
+  const body = pairs.map(x => `<div class="ex-pair">
+      <div class="ex-title">${av(x.from)}<span>${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><b>${x.net ? sarCents(x.net) : 'even'}</b></div>
+      <div class="ex-sub">${esc(x.to)} paid, ${esc(x.from)}'s share</div>
+      ${x.owes.length ? x.owes.map(row).join('') : '<div class="ex-none">Nothing</div>'}
+      <div class="ex-sum"><span>${esc(x.from)} owes ${esc(x.to)}</span><span>${sarCents(x.owesTotal)}</span></div>
+      ${x.back.length ? `<div class="ex-sub">${esc(x.from)} paid, ${esc(x.to)}'s share (comes off)</div>${x.back.map(row).join('')}<div class="ex-sum"><span>${esc(x.to)} owes ${esc(x.from)}</span><span>− ${sarCents(x.backTotal)}</span></div>` : ''}
+      <div class="ex-final"><span>${sarCents(x.owesTotal)}${x.back.length ? ' − ' + sarCents(x.backTotal) : ''}</span><span>${x.net ? '= ' + sarCents(x.net) : '= nothing to send'}</span></div>
+    </div>`).join('');
+  return `<p class="ex-intro">Every pair settles directly with no one in the middle. For two people, we add up their share of what the other one paid, take off what the other owes them back, and the difference is sent once. Your own share of what you paid yourself is never owed to anyone.${skipped ? ` ${skipped} expense${skipped > 1 ? 's are' : ' is'} left out (set to "Don't count").` : ''}</p>${body || '<div class="ex-none">Nothing to settle.</div>'}`;
 }
 
 function logHTML(list, emptyText) {
@@ -535,22 +583,25 @@ function render() {
   $('#sumHead').textContent = isToday ? 'If the day ended now' : 'Who sends what';
   $('#logHead').textContent = isToday ? 'Everything logged today' : 'Everything logged';
   updateHint();
+  $('#editBar').hidden = !editingId;
+  if (editingId) $('#editLabel').textContent = `Editing: ${(expenses.find(v => v.id === editingId)?.note) || 'expense'}`;
+  $('#submitBtn').textContent = editingId ? 'Save changes' : 'Add expense';
   $('#payer').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${p === payer}">${av(p)}${esc(p)}</button>`).join('');
   $('#split').innerHTML = PEOPLE.map((p, i) => `<button type="button" class="chip c${i}" data-p="${esc(p)}" aria-pressed="${split.has(p)}">${av(p)}${esc(p)}</button>`).join('');
 
   $('#addLog').innerHTML = logHTML(today, 'Nothing yet today. Add the first expense above.');
-  $('#todaySummary').innerHTML = shown.length ? `<div class="card">${summaryHTML(shown)}</div>` : `<div class="log"><div class="empty">${isToday ? 'No expenses today yet.' : 'No expenses on this day.'}</div></div>`;
+  $('#todaySummary').innerHTML = shown.length ? `<div class="card">${summaryHTML(shown, dayKey_)}</div>` : `<div class="log"><div class="empty">${isToday ? 'No expenses today yet.' : 'No expenses on this day.'}</div></div>`;
   $('#todayLog').innerHTML = logHTML(shown, 'Nothing logged yet.');
 
   const days = closedDays();
   let html = '';
   if (days.length) {
-    html += `<h2 class="h">Whole trip so far</h2><div class="card">${summaryHTML(expenses)}<p class="muted small" style="margin:12px 0 0">Use this if you'd rather settle once at the end instead of every day.</p></div>`;
+    html += `<h2 class="h">Whole trip so far</h2><div class="card">${summaryHTML(expenses, 'all')}<p class="muted small" style="margin:12px 0 0">Use this if you'd rather settle once at the end instead of every day.</p></div>`;
     html += `<h2 class="h">Daily summaries</h2>`;
     html += days.map(d => {
       const l = expenses.filter(e => e.day === d);
       return `<div class="card"><div class="day-title"><b>${fmtDay(d)}</b><span class="muted small">${l.length} item${l.length > 1 ? 's' : ''}</span></div>
-        ${summaryHTML(l)}<details><summary>Show the full log</summary>${logHTML(l, '')}</details></div>`;
+        ${summaryHTML(l, d)}<details><summary>Show the full log</summary>${logHTML(l, '')}</details></div>`;
     }).join('');
   } else {
     html = `<div class="card hero"><div class="big" style="font-size:22px">No summaries yet</div><p class="muted" style="margin:6px 0 0">At midnight each day's expenses are locked in here, with who sends what.</p></div>`;
@@ -633,10 +684,36 @@ $('#split').addEventListener('click', e => {
   render();
 });
 let lastSig = '', lastSigAt = 0;
+let editingId = null;
+function startEdit(x) {
+  closeDetail();
+  editingId = x.id; currency = x.currency; payer = x.payer; split = new Set(x.split);
+  $('#amount').value = String(x.amount); $('#note').value = x.note || '';
+  show('add'); render();
+  $('#amount').focus();
+}
+function stopEdit() {
+  editingId = null; $('#amount').value = ''; $('#note').value = '';
+  payer = me || payer; split = new Set(PEOPLE); render();
+}
 $('#form').addEventListener('submit', e => {
   e.preventDefault();
   const amount = parseAmount();
   if (!amount || amount <= 0) { $('#amount').focus(); return toast('Enter an amount'); }
+  if (editingId) {
+    const old = expenses.find(v => v.id === editingId);
+    if (!old) { stopEdit(); return toast('That expense was deleted'); }
+    const same = amount === old.amount && currency === old.currency && typeof old.sar === 'number';
+    const note = $('#note').value.trim().slice(0, 60);
+    store.update(editingId, {
+      payer, amount, currency, note, split: PEOPLE.filter(p => split.has(p)),
+      rate: same ? (old.rate ?? rates[currency]) : rates[currency],
+      sar: same ? old.sar : Math.round(amount / rates[currency] * 100) / 100,
+    });
+    toast('Saved changes'); navigator.vibrate?.(15);
+    $('#amount').blur(); $('#note').blur(); stopEdit();
+    return;
+  }
   const sig = [payer, amount, currency, $('#note').value.trim(), [...split].sort().join()].join('|');
   if (sig === lastSig && Date.now() - lastSigAt < 4000) return toast('Already added');  // double tap
   lastSig = sig; lastSigAt = Date.now();
@@ -663,6 +740,14 @@ document.addEventListener('click', e => {
   openDetail(x);
 });
 $('#dClose').addEventListener('click', closeDetail);
+$('#dEdit').addEventListener('click', () => { const x = expenses.find(v => v.id === detailId); if (x) startEdit(x); });
+$('#editCancel').addEventListener('click', stopEdit);
+document.addEventListener('click', e => {
+  const b = e.target.closest('.explain-btn'); if (!b) return;
+  $('#explainBody').innerHTML = explainHTML(b.dataset.scope); $('#explain').hidden = false;
+});
+$('#exClose').addEventListener('click', () => { $('#explain').hidden = true; });
+$('#explain').addEventListener('click', e => { if (e.target === $('#explain')) $('#explain').hidden = true; });
 $('#dSkip').addEventListener('click', () => {
   const x = expenses.find(v => v.id === detailId); if (!x) return;
   const excluded = !x.excluded;

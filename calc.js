@@ -114,8 +114,35 @@
     return { total, paid, transfers };
   }
 
-  // (kept so an older cached page that still asks for it keeps working)
-  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs };
+  // The working behind settlePairs: for each pair, which expenses make up what one owes the
+  // other, which make up what comes back the other way, and the difference (the transfer).
+  // Every entry is {id, cents}. `from` sends `to` the `net` amount.
+  function explainPairs(list, centsOf) {
+    const items = {};
+    PEOPLE.forEach(a => PEOPLE.forEach(b => { if (a !== b) items[a + '>' + b] = []; }));
+    for (const e of list) {
+      shareOut(centsOf(e), e.split.length, e.id).forEach((share, i) => {
+        if (e.split[i] !== e.payer) items[e.split[i] + '>' + e.payer].push({ id: e.id, cents: share });
+      });
+    }
+    const sum = arr => arr.reduce((t, x) => t + x.cents, 0);
+    const out = [];
+    PEOPLE.forEach((a, i) => PEOPLE.slice(i + 1).forEach(b => {
+      const ab = items[a + '>' + b], ba = items[b + '>' + a];
+      if (!ab.length && !ba.length) return;
+      const net = sum(ab) - sum(ba), forward = net >= 0;
+      out.push({
+        from: forward ? a : b, to: forward ? b : a,
+        owes: forward ? ab : ba, owesTotal: forward ? sum(ab) : sum(ba),       // what `from` owes `to`
+        back: forward ? ba : ab, backTotal: forward ? sum(ba) : sum(ab),       // what `to` owes `from`
+        net: Math.abs(net),
+      });
+    }));
+    return out.sort((x, y) => y.net - x.net);
+  }
+
+  // (settleByPayer is kept so an older cached page that still asks for it keeps working)
+  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer, settlePairs, explainPairs };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TripCalc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
