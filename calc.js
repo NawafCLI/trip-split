@@ -67,7 +67,31 @@
     return { total, paid, balance, transfers };
   }
 
-  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle };
+  // Settle each payer's expenses on their own: for everyone who paid, how much each other
+  // person owes them for THOSE expenses. Nothing is combined across different payers, so what
+  // Manar owes Raghad only ever comes from Raghad's expenses (and likewise for everyone).
+  function settleByPayer(list, centsOf) {
+    const out = [];
+    for (const payer of PEOPLE) {
+      const mine = list.filter(e => e.payer === payer);
+      if (!mine.length) continue;
+      const owed = {};
+      PEOPLE.forEach(p => { owed[p] = 0; });
+      let paid = 0;
+      for (const e of mine) {
+        const c = centsOf(e);
+        paid += c;
+        shareOut(c, e.split.length, e.id).forEach((share, i) => { owed[e.split[i]] += share; });
+      }
+      out.push({
+        payer, paid, items: mine.length, own: owed[payer],
+        owes: PEOPLE.filter(p => p !== payer && owed[p] > 0).map(p => ({ from: p, cents: owed[p] })),
+      });
+    }
+    return out;
+  }
+
+  const api = { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TripCalc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

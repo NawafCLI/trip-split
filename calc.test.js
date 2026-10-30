@@ -1,6 +1,6 @@
 // Run with: node calc.test.js
 const assert = require('assert');
-const { PEOPLE, parseAmountText, toCents, shareOut, settle } = require('./calc.js');
+const { PEOPLE, parseAmountText, toCents, shareOut, settle, settleByPayer } = require('./calc.js');
 
 let n = 0;
 const eq = (a, b, msg) => { assert.deepStrictEqual(a, b, msg); n++; };
@@ -51,6 +51,23 @@ eq(r.transfers, [
   { from: 'Nawaf', to: 'Raghad', cents: 34700 },
 ]);
 
+// ---- each payer's expenses are settled on their own ----
+const bp = settleByPayer(real, e => toCents(e.sar));
+const byName = Object.fromEntries(bp.map(x => [x.payer, x]));
+eq(bp.map(x => x.payer), ['Nawaf', 'Manar', 'Raghad']);
+// Raghad's five: Manar owes 326.34 and Nawaf owes 669.33, untouched by anyone else's expenses
+eq(byName.Raghad.paid, 177200);
+eq(byName.Raghad.owes, [{ from: 'Nawaf', cents: 66933 }, { from: 'Manar', cents: 32634 }]);
+eq(byName.Raghad.own, 177200 - 66933 - 32634);
+// Nawaf's three: Manar owes Nawaf 147.15 + 14.02, Raghad owes Nawaf 147.15 + 14.01
+eq(byName.Nawaf.owes.find(o => o.from === 'Manar').cents, 14715 + 1402);
+eq(byName.Nawaf.owes.find(o => o.from === 'Raghad').cents, 14715 + 1401);
+// Manar's gift: Raghad owes half
+eq(byName.Manar.owes, [{ from: 'Raghad', cents: 4550 }]);
+// only Raghad's expenses -> identical to the sum of her own list
+const onlyR = settleByPayer(real.filter(e => e.payer === 'Raghad'), e => toCents(e.sar));
+eq(onlyR[0].owes, byName.Raghad.owes);
+
 // the example from the start: 200 and 105, split three ways
 const ex = settle([
   { id: 'a', payer: 'Nawaf', split: PEOPLE }, { id: 'b', payer: 'Raghad', split: PEOPLE },
@@ -89,6 +106,23 @@ for (let t = 0; t < 3000; t++) {
   for (const x of res.transfers) { left[x.from] += x.cents; left[x.to] -= x.cents; eq(x.cents > 0, true); }
   eq(PEOPLE.every(p => left[p] === 0), true);
   eq(res.transfers.length <= 2, true);
+}
+
+// random lists: per payer, what others owe + own share = what the payer paid, exactly
+seed = 777;
+for (let t = 0; t < 2000; t++) {
+  const list = Array.from({ length: 1 + Math.floor(rnd() * 10) }, (_, i) => {
+    const split = PEOPLE.filter(() => rnd() < 0.6);
+    return { id: 'q' + t + '_' + i, payer: PEOPLE[Math.floor(rnd() * 3)], split: split.length ? split : [PEOPLE[Math.floor(rnd() * 3)]], cents: 1 + Math.floor(rnd() * 3000000) };
+  });
+  const groups = settleByPayer(list, e => e.cents);
+  for (const g of groups) {
+    const mine = list.filter(e => e.payer === g.payer);
+    eq(g.paid, mine.reduce((s, e) => s + e.cents, 0));
+    eq(g.owes.reduce((s, o) => s + o.cents, 0) + g.own, g.paid);
+    eq(g.owes.every(o => o.from !== g.payer && o.cents > 0), true);
+  }
+  eq(groups.reduce((s, g) => s + g.paid, 0), list.reduce((s, e) => s + e.cents, 0));
 }
 
 console.log(`all ${n} checks passed`);

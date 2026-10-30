@@ -145,6 +145,9 @@
   .paid .n { font-size: 12px; color: var(--muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .paid .v { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
   .xfer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 9%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); }
+  .payer + .payer { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .payer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 700; font-size: 16px; }
+  .payer-head .sub { margin-left: auto; color: var(--muted); font-weight: 600; font-size: 13px; text-align: right; }
   .xfer + .xfer { margin-top: 6px; }
   .xfer .who { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; }
   .xfer .arrow { color: var(--muted); font-weight: 400; }
@@ -205,6 +208,9 @@
   .share .m { font-size: 13px; color: var(--muted); }
   .share .amt { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .share .amt .m { font-weight: 500; }
+  .row.skipped { opacity: .5; }
+  .row.skipped .amt { text-decoration: line-through; }
+  .d-skip { margin: 12px 2px 0; padding: 10px 12px; border-radius: 10px; background: var(--soft); color: var(--muted); font-size: 14px; font-weight: 600; }
   .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
   .btn { border: 1.5px solid var(--line); background: var(--card); border-radius: 12px; padding: 13px; font-weight: 700; font-size: 16px; }
   .btn.danger { border-color: var(--bad); color: var(--bad); }
@@ -297,6 +303,7 @@
   <div class="sheet detail" role="dialog" aria-modal="true" aria-label="Expense details">
     <div id="detailBody"></div>
     <div class="sheet-actions">
+      <button class="btn" id="dSkip" type="button" style="grid-column: 1 / -1"></button>
       <button class="btn" id="dClose" type="button">Close</button>
       <button class="btn danger" id="dDelete" type="button">Delete</button>
     </div>
@@ -379,6 +386,7 @@ function localStore() {
     mode: 'local',
     subscribe(f) { subs.push(f); f(read()); },
     add(e) { ls.set(KEY, [...read(), e]); emit(); },
+    update(id, patch) { ls.set(KEY, read().map(x => x.id === id ? { ...x, ...patch } : x)); emit(); },
     remove(id) { ls.set(KEY, read().filter(x => x.id !== id)); emit(); },
   };
 }
@@ -400,6 +408,7 @@ async function firebaseStore() {
       }, err => { console.error(err); status('err'); });
     },
     add(e) { fs.setDoc(fs.doc(col, e.id), e).catch(err => { console.error(err); toast('Could not save. Check connection.'); }); },
+    update(id, patch) { fs.setDoc(fs.doc(col, id), patch, { merge: true }).catch(err => { console.error(err); toast('Could not save. Check connection.'); }); },
     remove(id) { fs.deleteDoc(fs.doc(col, id)).catch(err => console.error(err)); },
   };
 }
@@ -410,29 +419,38 @@ const centsOf = e => TripCalc.toCents(toSAR(e));
 const settle = list => TripCalc.settle(list, centsOf);
 const sarCents = c => money(c / 100, 'SAR');
 
-function summaryHTML(list) {
-  if (!list.length) return '<div class="empty">Nothing logged.</div>';
-  const res = settle(list);
+const settleByPayer = list => TripCalc.settleByPayer(list, centsOf);
+
+// Each person's expenses are settled on their own: "Manar sends Raghad" only ever adds up
+// Raghad's expenses, never anyone else's.
+function summaryHTML(all) {
+  if (!all.length) return '<div class="empty">Nothing logged.</div>';
+  const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
+  if (!list.length) return '<div class="empty">Nothing counted: every expense here is set to "Don\'t count".</div>';
+  const groups = settleByPayer(list);
+  const total = groups.reduce((s, g) => s + g.paid, 0);
   const spent = Object.keys(CUR).map(c => {
     const l = list.filter(e => e.currency === c);
     return l.length ? money(l.reduce((s, e) => s + e.amount, 0), c) : '';
   }).filter(Boolean).join(' + ');
-  const paid = PEOPLE.map(p => `<div><div class="n">${esc(p)}</div><div class="v">${(res.paid[p] / 100).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>`).join('');
-  const xferHTML = res.transfers.length
-    ? res.transfers.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><span class="amt">${sarCents(x.cents)}</span></div>`).join('')
-    : '<div class="square">All square, nobody owes anything</div>';
+  const sections = groups.map(g => `<div class="payer ${'c' + pIdx(g.payer)}">
+      <div class="payer-head">${av(g.payer)}<span>${esc(g.payer)}'s expenses</span><span class="sub">paid ${sarCents(g.paid)} · ${g.items} item${g.items > 1 ? 's' : ''}</span></div>
+      ${g.owes.length
+        ? g.owes.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(g.payer)}</span><span class="amt">${sarCents(x.cents)}</span></div>`).join('')
+        : `<div class="square">Nobody owes ${esc(g.payer)} anything here</div>`}
+    </div>`).join('');
   return `<div class="cur-block">
-    <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${sarCents(res.total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
-    <div class="paid">${paid}</div>${xferHTML}
-    <p class="rates">Spent ${spent}. Each expense is converted at the rate when it was logged.</p></div>`;
+    <div class="cur-head"><span class="tag">IN SAR</span><span class="muted small">Total ${sarCents(total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
+    ${sections}
+    <p class="rates">Spent ${spent}. Each person's expenses are settled on their own, and each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p></div>`;
 }
 
 function logHTML(list, emptyText) {
   if (!list.length) return `<div class="log"><div class="empty">${emptyText}</div></div>`;
   return '<div class="log">' + [...list].sort((a, b) => b.ts - a.ts).map(e => {
     const split = e.split.length === PEOPLE.length ? 'split 3 ways' : 'for ' + e.split.join(' & ');
-    return `<button class="row" type="button" data-id="${esc(e.id)}">${av(e.payer)}
-      <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}</div></span>
+    return `<button class="row${e.excluded ? ' skipped' : ''}" type="button" data-id="${esc(e.id)}">${av(e.payer)}
+      <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}${e.excluded ? ' · not counted' : ''}</div></span>
       <span class="amt">${money(e.amount, e.currency)}${e.currency === 'SAR' ? '' : `<div class="m">≈ ${money(toSAR(e), 'SAR')}</div>`}</span></button>`;
   }).join('') + '</div>';
 }
@@ -472,7 +490,7 @@ function detailHTML(x) {
       <div><div class="d-amt">${money(x.amount, c)}</div>${c === 'SAR' ? '' : `<div class="d-sar">≈ ${money(toSAR(x), 'SAR')}</div>`}</div></div>
     <div class="d-meta">Paid by ${esc(x.payer)} · ${fmtDay(x.day)}, ${fmtTime(x.ts)}</div>
     <div class="d-sum">Split ${n === PEOPLE.length ? '3 ways' : n === 1 ? 'on one person' : n + ' ways'} · ${money(share, c)} each</div>
-    <div class="shares">${rows}</div>`;
+    <div class="shares">${rows}</div>${x.excluded ? '<div class="d-skip">Left out of the totals and the settle-up.</div>' : ''}`;
 }
 function resetDelete() {
   clearTimeout(armTimer);
@@ -480,6 +498,7 @@ function resetDelete() {
 }
 function openDetail(x) {
   detailId = x.id; $('#detailBody').innerHTML = detailHTML(x);
+  $('#dSkip').textContent = x.excluded ? 'Count in totals again' : "Don't count in totals";
   resetDelete(); $('#detail').hidden = false;
 }
 function closeDetail() { detailId = null; $('#detail').hidden = true; resetDelete(); }
@@ -621,6 +640,12 @@ document.addEventListener('click', e => {
   openDetail(x);
 });
 $('#dClose').addEventListener('click', closeDetail);
+$('#dSkip').addEventListener('click', () => {
+  const x = expenses.find(v => v.id === detailId); if (!x) return;
+  const excluded = !x.excluded;
+  closeDetail(); store.update(x.id, { excluded });
+  toast(excluded ? 'Left out of the totals' : 'Counted again');
+});
 $('#detail').addEventListener('click', e => { if (e.target === $('#detail')) closeDetail(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && detailId) closeDetail(); });
 $('#dDelete').addEventListener('click', () => {
