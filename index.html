@@ -314,6 +314,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
+<script src="calc.js"></script>
 <script type="module">
 const PEOPLE = ['Nawaf', 'Manar', 'Raghad'];
 const CUR = { KRW: { sym: '₩' }, JPY: { sym: '¥' }, SAR: { sym: '﷼' } };
@@ -404,46 +405,24 @@ async function firebaseStore() {
 }
 
 // ---------- settlement ----------
-function settle(list) {
-  const bal = Object.fromEntries(PEOPLE.map(p => [p, 0]));
-  for (const e of list) {
-    const v = toSAR(e);
-    bal[e.payer] += v;
-    for (const p of e.split) bal[p] -= v / e.split.length;
-  }
-  // Greedy: biggest debtor pays biggest creditor. With three people this is at most two transfers.
-  const EPS = 0.005;
-  const cred = PEOPLE.filter(p => bal[p] > EPS).map(p => ({ p, v: bal[p] })).sort((a, b) => b.v - a.v);
-  const debt = PEOPLE.filter(p => bal[p] < -EPS).map(p => ({ p, v: -bal[p] })).sort((a, b) => b.v - a.v);
-  const out = [];
-  let i = 0, j = 0;
-  while (i < debt.length && j < cred.length) {
-    const v = Math.min(debt[i].v, cred[j].v);
-    if (v >= EPS) out.push({ from: debt[i].p, to: cred[j].p, amount: v });
-    debt[i].v -= v; cred[j].v -= v;
-    if (debt[i].v < EPS) i++;
-    if (cred[j].v < EPS) j++;
-  }
-  return out;
-}
+// All money maths lives in calc.js (tested with calc.test.js) and works in whole halalas.
+const centsOf = e => TripCalc.toCents(toSAR(e));
+const settle = list => TripCalc.settle(list, centsOf);
+const sarCents = c => money(c / 100, 'SAR');
 
 function summaryHTML(list) {
   if (!list.length) return '<div class="empty">Nothing logged.</div>';
-  const total = list.reduce((s, e) => s + toSAR(e), 0);
+  const res = settle(list);
   const spent = Object.keys(CUR).map(c => {
     const l = list.filter(e => e.currency === c);
     return l.length ? money(l.reduce((s, e) => s + e.amount, 0), c) : '';
   }).filter(Boolean).join(' + ');
-  const paid = PEOPLE.map(p => {
-    const v = list.filter(e => e.payer === p).reduce((s, e) => s + toSAR(e), 0);
-    return `<div><div class="n">${esc(p)}</div><div class="v">${v.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>`;
-  }).join('');
-  const xfers = settle(list);
-  const xferHTML = xfers.length
-    ? xfers.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><span class="amt">${money(x.amount, 'SAR')}</span></div>`).join('')
+  const paid = PEOPLE.map(p => `<div><div class="n">${esc(p)}</div><div class="v">${(res.paid[p] / 100).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>`).join('');
+  const xferHTML = res.transfers.length
+    ? res.transfers.map(x => `<div class="xfer">${av(x.from)}<span class="who">${esc(x.from)} <span class="arrow">sends</span> ${esc(x.to)}</span><span class="amt">${sarCents(x.cents)}</span></div>`).join('')
     : '<div class="square">All square, nobody owes anything</div>';
   return `<div class="cur-block">
-    <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${money(total, 'SAR')} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
+    <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${sarCents(res.total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
     <div class="paid">${paid}</div>${xferHTML}
     <p class="rates">Spent ${spent}. Each expense is converted at the rate when it was logged.</p></div>`;
 }
@@ -478,7 +457,7 @@ function closedDays() {
 let detailId = null, armTimer;
 function detailHTML(x) {
   const c = x.currency, n = x.split.length;
-  const share = x.amount / n, shareSar = toSAR(x) / n;
+  const share = x.amount / n, sarShares = TripCalc.shareOut(centsOf(x), n, x.id);
   const sarSub = v => c === 'SAR' ? '' : `<div class="m">≈ ${money(v, 'SAR')}</div>`;
   const rows = PEOPLE.map(p => {
     const inSplit = x.split.includes(p);
@@ -487,7 +466,7 @@ function detailHTML(x) {
       : (p === x.payer ? 'Paid, not sharing' : 'Not in this split');
     return `<div class="share${inSplit ? '' : ' off'}">${av(p)}
       <span class="mid"><div class="t">${esc(p)}</div><div class="m">${status}</div></span>
-      <span class="amt">${inSplit ? money(share, c) + sarSub(shareSar) : '–'}</span></div>`;
+      <span class="amt">${inSplit ? money(share, c) + sarSub(sarShares[x.split.indexOf(p)] / 100) : '–'}</span></div>`;
   }).join('');
   return `<div class="d-top"><div class="d-note">${esc(x.note || 'Expense')}</div>
       <div><div class="d-amt">${money(x.amount, c)}</div>${c === 'SAR' ? '' : `<div class="d-sar">≈ ${money(toSAR(x), 'SAR')}</div>`}</div></div>
@@ -568,13 +547,12 @@ function tick() {
 }
 
 // Won and yen have no small change; riyals keep halalas (2 decimals).
-const parseAmount = () => {
-  const v = parseFloat($('#amount').value.replace(/[^\d.]/g, ''));
-  return currency === 'SAR' ? Math.round(v * 100) / 100 : Math.round(v);
-};
+const parseAmount = () => TripCalc.parseAmountText($('#amount').value, currency);
 function updateHint() {
   const a = parseAmount();
-  $('#sarLine').innerHTML = a > 0 && currency !== 'SAR' ? `≈ ${money(a / rates[currency], 'SAR')}<small>${rateText()}</small>` : `<small style="margin:0">${rateText()}</small>`;
+  const sar = a > 0 && currency !== 'SAR' ? ` ≈ ${money(a / rates[currency], 'SAR')}` : '';
+  // Echo exactly what will be saved so a mistyped amount is obvious before pressing Add.
+  $('#sarLine').innerHTML = a > 0 ? `${money(a, currency)}${sar}<small>${rateText()}</small>` : `<small style="margin:0">${rateText()}</small>`;
 }
 
 let toastTimer;
@@ -612,10 +590,14 @@ $('#split').addEventListener('click', e => {
   else split.add(p);
   render();
 });
+let lastSig = '', lastSigAt = 0;
 $('#form').addEventListener('submit', e => {
   e.preventDefault();
   const amount = parseAmount();
   if (!amount || amount <= 0) { $('#amount').focus(); return toast('Enter an amount'); }
+  const sig = [payer, amount, currency, $('#note').value.trim(), [...split].sort().join()].join('|');
+  if (sig === lastSig && Date.now() - lastSigAt < 4000) return toast('Already added');  // double tap
+  lastSig = sig; lastSigAt = Date.now();
   const ts = Date.now();
   const exp = {
     id: uid(), ts, day: dayKey(ts), payer, amount, currency,
