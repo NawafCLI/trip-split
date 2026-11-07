@@ -232,6 +232,15 @@
   .ex-final { display: flex; justify-content: space-between; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--card)); font-weight: 800; font-variant-numeric: tabular-nums; }
   .editbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; font-weight: 600; font-size: 14px; background: color-mix(in srgb, var(--accent) 14%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .editbar button { border: 0; background: none; color: var(--accent); font-weight: 700; font-size: 14px; }
+  .tick { position: relative; flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--muted); display: inline-grid; place-items: center; margin-right: -2px; }
+  .tick::before { content: ""; position: absolute; inset: -10px; }
+  .tick.on { background: var(--good); border-color: var(--good); }
+  .tick.on::after { content: "\2713"; color: var(--bg); font-size: 15px; font-weight: 800; line-height: 1; }
+  .row.settled { opacity: .55; }
+  .pay-btn, .unpay-btn { width: 100%; margin-top: 8px; padding: 12px; border-radius: 12px; border: 1.5px solid var(--line); background: none; color: var(--ink); font-weight: 700; font-size: 15px; }
+  .pay-btn.armed { background: var(--good); border-color: var(--good); color: var(--bg); }
+  .allpaid { text-align: center; padding: 8px 0 2px; }
+  .ap-big { font-size: 24px; font-weight: 800; color: var(--good); margin-bottom: 4px; }
   .toast {
     position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
     background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px;
@@ -334,6 +343,7 @@
   <div class="sheet detail" role="dialog" aria-modal="true" aria-label="Expense details">
     <div id="detailBody"></div>
     <div class="sheet-actions">
+      <button class="btn" id="dPaid" type="button" style="grid-column: 1 / -1"></button>
       <button class="btn" id="dSkip" type="button" style="grid-column: 1 / -1"></button>
       <button class="btn" id="dClose" type="button">Close</button>
       <button class="btn" id="dEdit" type="button">Edit</button>
@@ -457,9 +467,13 @@ const settlePairs = list => TripCalc.settlePairs(list, centsOf);
 
 // One panel: what each person paid, then one combined line per pair of people. What Manar sends
 // Raghad only ever comes from expenses between Manar and Raghad, nothing is routed through anyone.
+// An expense counts toward what is still owed unless it is left out ("don't count") or ticked as paid.
+const counted = e => !e.excluded && !e.settled;
+
 function summaryHTML(all, scope) {
   if (!all.length) return '<div class="empty">Nothing logged.</div>';
-  const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
+  const list = all.filter(counted), skipped = all.filter(e => e.excluded).length, paidN = all.filter(e => e.settled && !e.excluded).length;
+  if (!list.length && paidN) return `<div class="allpaid"><div class="ap-big">\u2713 All paid</div><div class="muted small">${paidN} expense${paidN > 1 ? 's are' : ' is'} ticked as paid, so nothing is left to send.</div><button class="unpay-btn" type="button" data-scope="${esc(scope || 'all')}">Undo: mark all as not paid</button></div>`;
   if (!list.length) return '<div class="empty">Nothing counted: every expense here is set to "Don\'t count".</div>';
   const res = settlePairs(list);
   const spent = Object.keys(CUR).map(c => {
@@ -473,13 +487,14 @@ function summaryHTML(all, scope) {
   return `<div class="cur-block">
     <div class="cur-head"><span class="tag">PAID, IN SAR</span><span class="muted small">Total ${sarCents(res.total)} · ${list.length} item${list.length > 1 ? 's' : ''}</span></div>
     <div class="paid">${paid}</div>${xferHTML}
-    <p class="rates">Spent ${spent}. Each pair settles directly, nothing goes through a third person. Each expense is converted at the rate when it was logged.${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p>
-    <button class="explain-btn" type="button" data-scope="${esc(scope || 'all')}">How is this worked out?</button></div>`;
+    <p class="rates">Spent ${spent}. Each pair settles directly, nothing goes through a third person. Each expense is converted at the rate when it was logged.${paidN ? ` <b>${paidN} already paid, not included.</b>` : ''}${skipped ? ` <b>${skipped} left out of these totals.</b>` : ''}</p>
+    <button class="explain-btn" type="button" data-scope="${esc(scope || 'all')}">How is this worked out?</button>
+    <button class="pay-btn" type="button" data-scope="${esc(scope || 'all')}">Mark all as paid</button></div>`;
 }
 
 function explainHTML(scope) {
   const all = scope === 'all' ? expenses : expenses.filter(e => e.day === scope);
-  const list = all.filter(e => !e.excluded), skipped = all.length - list.length;
+  const list = all.filter(counted), skipped = all.filter(e => e.excluded).length, paidN = all.filter(e => e.settled && !e.excluded).length;
   const byId = Object.fromEntries(list.map(e => [e.id, e]));
   const row = it => {
     const e = byId[it.id];
@@ -496,15 +511,15 @@ function explainHTML(scope) {
       ${x.back.length ? `<div class="ex-sub">${esc(x.from)} paid, ${esc(x.to)}'s share (comes off)</div>${x.back.map(row).join('')}<div class="ex-sum"><span>${esc(x.to)} owes ${esc(x.from)}</span><span>− ${sarCents(x.backTotal)}</span></div>` : ''}
       <div class="ex-final"><span>${sarCents(x.owesTotal)}${x.back.length ? ' − ' + sarCents(x.backTotal) : ''}</span><span>${x.net ? '= ' + sarCents(x.net) : '= nothing to send'}</span></div>
     </div>`).join('');
-  return `<p class="ex-intro">Every pair settles directly with no one in the middle. For two people, we add up their share of what the other one paid, take off what the other owes them back, and the difference is sent once. Your own share of what you paid yourself is never owed to anyone.${skipped ? ` ${skipped} expense${skipped > 1 ? 's are' : ' is'} left out (set to "Don't count").` : ''}</p>${body || '<div class="ex-none">Nothing to settle.</div>'}`;
+  return `<p class="ex-intro">Every pair settles directly with no one in the middle. For two people, we add up their share of what the other one paid, take off what the other owes them back, and the difference is sent once. Your own share of what you paid yourself is never owed to anyone.${paidN ? ` ${paidN} expense${paidN > 1 ? 's are' : ' is'} already paid, so not included.` : ''}${skipped ? ` ${skipped} expense${skipped > 1 ? 's are' : ' is'} left out (set to "Don't count").` : ''}</p>${body || '<div class="ex-none">Nothing to settle.</div>'}`;
 }
 
 function logHTML(list, emptyText) {
   if (!list.length) return `<div class="log"><div class="empty">${emptyText}</div></div>`;
   return '<div class="log">' + [...list].sort((a, b) => b.ts - a.ts).map(e => {
     const split = e.split.length === PEOPLE.length ? 'split 3 ways' : 'for ' + e.split.join(' & ');
-    return `<button class="row${e.excluded ? ' skipped' : ''}" type="button" data-id="${esc(e.id)}">${av(e.payer)}
-      <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}${e.excluded ? ' · not counted' : ''}</div></span>
+    return `<button class="row${e.excluded ? ' skipped' : ''}${e.settled ? ' settled' : ''}" type="button" data-id="${esc(e.id)}"><span class="tick${e.settled ? ' on' : ''}" role="checkbox" aria-checked="${!!e.settled}" aria-label="Already paid" data-tick></span>${av(e.payer)}
+      <span class="mid"><div class="t">${esc(e.note || 'Expense')}</div><div class="m">${esc(e.payer)} paid · ${fmtTime(e.ts)} · ${esc(split)}${e.settled ? ' · already paid' : ''}${e.excluded ? ' · not counted' : ''}</div></span>
       <span class="amt">${money(e.amount, e.currency)}${e.currency === 'SAR' ? '' : `<div class="m">≈ ${money(toSAR(e), 'SAR')}</div>`}</span></button>`;
   }).join('') + '</div>';
 }
@@ -548,7 +563,7 @@ function detailHTML(x) {
       <div><div class="d-amt">${money(x.amount, c)}</div>${c === 'SAR' ? '' : `<div class="d-sar">≈ ${money(toSAR(x), 'SAR')}</div>`}</div></div>
     <div class="d-meta">Paid by ${esc(x.payer)} · ${fmtDay(x.day)}, ${fmtTime(x.ts)}</div>
     <div class="d-sum">Split ${n === PEOPLE.length ? '3 ways' : n === 1 ? 'on one person' : n + ' ways'} · ${money(share, c)} each</div>
-    <div class="shares">${rows}</div>${x.excluded ? '<div class="d-skip">Left out of the totals and the settle-up.</div>' : ''}`;
+    <div class="shares">${rows}</div>${x.settled ? '<div class="d-skip">Ticked as already paid, so it is not counted in what is still owed.</div>' : ''}${x.excluded ? '<div class="d-skip">Left out of the totals and the settle-up.</div>' : ''}`;
 }
 function resetDelete() {
   clearTimeout(armTimer);
@@ -556,6 +571,7 @@ function resetDelete() {
 }
 function openDetail(x) {
   detailId = x.id; $('#detailBody').innerHTML = detailHTML(x);
+  $('#dPaid').textContent = x.settled ? 'Mark as not paid' : '\u2713 Mark as already paid';
   $('#dSkip').textContent = x.excluded ? 'Count in totals again' : "Don't count in totals";
   resetDelete(); $('#detail').hidden = false;
 }
@@ -737,9 +753,38 @@ $('#amount').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 document.addEventListener('click', e => {
   const row = e.target.closest('.row[data-id]'); if (!row) return;
   const x = expenses.find(v => v.id === row.dataset.id); if (!x) return;
+  if (e.target.closest('[data-tick]')) {            // the circle on the left: tick / untick as paid
+    store.update(x.id, { settled: !x.settled });
+    navigator.vibrate?.(10);
+    return;
+  }
   openDetail(x);
 });
 $('#dClose').addEventListener('click', closeDetail);
+$('#dPaid').addEventListener('click', () => {
+  const x = expenses.find(v => v.id === detailId); if (!x) return;
+  const settled = !x.settled;
+  closeDetail(); store.update(x.id, { settled });
+  toast(settled ? 'Marked as paid' : 'Marked as not paid');
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('.pay-btn, .unpay-btn'); if (!b) return;
+  const scope = b.dataset.scope;
+  const inScope = scope === 'all' ? expenses : expenses.filter(x => x.day === scope);
+  if (b.classList.contains('unpay-btn')) {
+    const ids = inScope.filter(x => x.settled).map(x => x.id);
+    ids.forEach(id => store.update(id, { settled: false }));
+    return toast(`${ids.length} marked as not paid`);
+  }
+  if (!b.classList.contains('armed')) {            // first tap arms it, second tap does it
+    b.classList.add('armed'); b.textContent = 'Tap again to mark all as paid';
+    setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = 'Mark all as paid'; } }, 4000);
+    return;
+  }
+  const ids = inScope.filter(counted).map(x => x.id);
+  ids.forEach(id => store.update(id, { settled: true }));
+  toast(`${ids.length} marked as paid`);
+});
 $('#dEdit').addEventListener('click', () => { const x = expenses.find(v => v.id === detailId); if (x) startEdit(x); });
 $('#editCancel').addEventListener('click', stopEdit);
 document.addEventListener('click', e => {
